@@ -257,3 +257,83 @@ student_allocation, tutor_allocation = gale_shapley_gpu_chunked(
 
 print("Student Allocation (Tensor):", student_allocation)
 print("Tutor Allocation (Tensor):", tutor_allocation)
+
+import pickle
+
+def save_and_evaluate_allocations(
+    tutors_df, students_df, student_allocation, tutor_allocation, compatibility_matrix
+):
+    """
+    Saves the final allocations and calculates statistics for total and average utilities,
+    and the number of matched and unmatched pairs.
+
+    Parameters:
+        tutors_df (pd.DataFrame): Dataframe containing tutor information.
+        students_df (pd.DataFrame): Dataframe containing student information.
+        student_allocation (torch.Tensor): Tensor with student indices and matched tutor indices.
+        tutor_allocation (torch.Tensor): Tensor with tutor indices and matched student indices.
+        compatibility_matrix (torch.Tensor): Binary tensor indicating compatibility between students and tutors.
+    """
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Calculate total and average utility for students
+    student_utilities = compatibility_matrix[torch.arange(len(students_df), device=device), student_allocation]
+    total_student_utility = student_utilities[student_utilities > 0].sum().item()
+    average_student_utility = student_utilities[student_utilities > 0].mean().item()
+
+    # Calculate total and average utility for tutors
+    tutor_utilities = compatibility_matrix.T[torch.arange(len(tutors_df), device=device), tutor_allocation]
+    total_tutor_utility = tutor_utilities[tutor_utilities > 0].sum().item()
+    average_tutor_utility = tutor_utilities[tutor_utilities > 0].mean().item()
+
+    # Calculate matched and unmatched pairs
+    num_matched_students = (student_allocation != -1).sum().item()
+    num_unmatched_students = (student_allocation == -1).sum().item()
+    num_matched_tutors = (tutor_allocation != -1).sum().item()
+    num_unmatched_tutors = (tutor_allocation == -1).sum().item()
+
+    # Prepare allocation data for saving
+    allocation_df = pd.DataFrame({
+        'Student_ID': students_df.index,
+        'Matched_Tutor_ID': student_allocation.cpu().numpy()
+    })
+    allocation_df['Matched_Tutor_Name'] = allocation_df['Matched_Tutor_ID'].apply(
+        lambda idx: tutors_df.iloc[idx]['name'] if idx != -1 else "Unmatched"
+    )
+
+    # Save to CSV
+    allocation_df.to_csv('final_allocations.csv', index=False)
+
+    # Save to Pickle
+    with open('final_allocations.pkl', 'wb') as pkl_file:
+        pickle.dump(allocation_df, pkl_file)
+
+    # Display results
+    print("Total Student Utility:", total_student_utility)
+    print("Average Student Utility:", average_student_utility)
+    print("Total Tutor Utility:", total_tutor_utility)
+    print("Average Tutor Utility:", average_tutor_utility)
+    print("Number of Matched Students:", num_matched_students)
+    print("Number of Unmatched Students:", num_unmatched_students)
+    print("Number of Matched Tutors:", num_matched_tutors)
+    print("Number of Unmatched Tutors:", num_unmatched_tutors)
+
+    # Return statistics for further use
+    return {
+        'total_student_utility': total_student_utility,
+        'average_student_utility': average_student_utility,
+        'total_tutor_utility': total_tutor_utility,
+        'average_tutor_utility': average_tutor_utility,
+        'num_matched_students': num_matched_students,
+        'num_unmatched_students': num_unmatched_students,
+        'num_matched_tutors': num_matched_tutors,
+        'num_unmatched_tutors': num_unmatched_tutors
+    }
+
+
+# Evaluate and save results
+results = save_and_evaluate_allocations(
+    tutors_df, students_df, student_allocation, tutor_allocation, compatibility_matrix
+)
+
+print("Results:", results)
